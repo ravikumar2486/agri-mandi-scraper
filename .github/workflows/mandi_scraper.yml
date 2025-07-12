@@ -2,8 +2,9 @@ name: Daily Mandi Scraper
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # Runs daily at 4 AM UTC (adjust as needed)
-  workflow_dispatch:  # Allow manual trigger
+    - cron: '0 4 * * *'   # Runs daily at 4 AM UTC (9:30 AM IST)
+    - cron: '0 12 * * *'  # Runs daily at 12 PM UTC (5:30 PM IST)
+  workflow_dispatch:      # Allow manual trigger from GitHub UI
 
 jobs:
   run:
