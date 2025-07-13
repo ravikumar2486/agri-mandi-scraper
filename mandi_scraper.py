@@ -31,33 +31,28 @@ commodity_codes = {
     # ➕ Add more commodities with their correct codes here
 }
 
-# ✅ Date fallback logic: today, yesterday, day before yesterday
-dates_to_try = []
-for i in range(3):
-    date_str = (datetime.today() - timedelta(days=i)).strftime('%d-%b-%Y')
-    dates_to_try.append(date_str)
-
-# ✅ Define scraping function with fallback dates
+# ✅ Define scraping function with per-crop date fallback
 def scrape_agmarknet():
     for commodity_name, code in commodity_codes.items():
         data_found_for_commodity = False
 
-        for days_back in range(0, 3):  # Today, Yesterday, Day before yesterday
+        for days_back in range(0, 3):  # Check today, yesterday, day before yesterday
             date_check = datetime.today() - timedelta(days=days_back)
             date_str = date_check.strftime('%d-%b-%Y')
             print(f"🔎 Trying {commodity_name} for date: {date_str}")
 
             url = f"https://agmarknet.gov.in/SearchCmmMkt.aspx?Tx_Commodity={code}&Tx_State=RJ&Tx_District=0&Tx_Market=0&DateFrom={date_str}&DateTo={date_str}&Fr_Date={date_str}&To_Date={date_str}&Tx_Trend=0&Tx_CommodityHead={commodity_name}&Tx_StateHead=Rajasthan&Tx_DistrictHead=--Select--&Tx_MarketHead=--Select--"
-            
+
             response = requests.get(url)
 
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, "html.parser")
                 table = soup.find("table", {"id": "cphBody_GridPriceData"})
-                mandi_prices = []
 
                 if table:
-                    rows = table.find_all("tr")[1:]
+                    rows = table.find_all("tr")[1:]  # Skip header
+                    mandi_prices = []
+
                     for row in rows:
                         cols = row.find_all("td")
                         if len(cols) >= 10:
@@ -76,14 +71,32 @@ def scrape_agmarknet():
                         else:
                             print("Skipping row with insufficient columns")
 
-                    # ✅ Upload to Firestore
+                    # ✅ Upload to Firestore with duplicate check
+                    uploaded_any = False
                     for item in mandi_prices:
-                        doc_ref = db.collection("mandi_prices").document()
-                        doc_ref.set(item)
-                    
-                    print(f"✅ {commodity_name} prices for {date_str} scraped and uploaded successfully.")
-                    data_found_for_commodity = True
-                    break  # ✅ Exit date loop for this commodity if data found
+                        existing_docs = db.collection("mandi_prices") \
+                            .where("commodity", "==", item["commodity"]) \
+                            .where("market", "==", item["market"]) \
+                            .where("date", "==", item["date"]) \
+                            .stream()
+
+                        if any(existing_docs):
+                            print(f"⚠️ Data for {item['commodity']} in {item['market']} on {item['date']} already exists. Skipping upload.")
+                        else:
+                            doc_ref = db.collection("mandi_prices").document()
+                            doc_ref.set(item)
+                            print(f"✅ Uploaded {item['commodity']} price for {item['market']} on {item['date']}.")
+                            uploaded_any = True
+
+                    if mandi_prices:
+                        if uploaded_any:
+                            print(f"✅ {commodity_name} prices for {date_str} processed and uploaded successfully.")
+                        else:
+                            print(f"ℹ️ {commodity_name} prices for {date_str} already exist in Firestore.")
+                        data_found_for_commodity = True
+                        break  # ✅ Exit date loop for this crop if data found
+                    else:
+                        print(f"❌ No rows with valid data for {commodity_name} on {date_str}")
                 else:
                     print(f"❌ No data table found for {commodity_name} on {date_str}")
             else:
@@ -91,7 +104,6 @@ def scrape_agmarknet():
 
         if not data_found_for_commodity:
             print(f"❌ No data found for {commodity_name} in last 3 days.")
-
 
 # ✅ Run scraper
 if __name__ == "__main__":
