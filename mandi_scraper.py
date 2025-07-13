@@ -13,7 +13,7 @@ if firebase_json_str:
         f.write(firebase_json_str)
     cred_file = "temp_firebase.json"
 else:
-    cred_file = "authenticationapp-c3711-firebase-adminsdk-fbsvc-f96d0b7bf3.json.json"
+    cred_file = "authenticationapp-c3711-firebase-adminsdk-fbsvc-f96d0b7bf3.json"
 
 # ✅ Initialize Firebase
 cred = credentials.Certificate(cred_file)
@@ -39,15 +39,17 @@ for i in range(3):
 
 # ✅ Define scraping function with fallback dates
 def scrape_agmarknet():
-    for date in dates_to_try:
-        data_found = False
-        print(f"🔎 Trying date: {date}")
+    for commodity_name, code in commodity_codes.items():
+        data_found_for_commodity = False
 
-        for commodity_name, code in commodity_codes.items():
-            url = f"https://agmarknet.gov.in/SearchCmmMkt.aspx?Tx_Commodity={code}&Tx_State=RJ&Tx_District=0&Tx_Market=0&DateFrom={date}&DateTo={date}&Fr_Date={date}&To_Date={date}&Tx_Trend=0&Tx_CommodityHead={commodity_name}&Tx_StateHead=Rajasthan&Tx_DistrictHead=--Select--&Tx_MarketHead=--Select--"
+        for days_back in range(0, 3):  # Today, Yesterday, Day before yesterday
+            date_check = datetime.today() - timedelta(days=days_back)
+            date_str = date_check.strftime('%d-%b-%Y')
+            print(f"🔎 Trying {commodity_name} for date: {date_str}")
+
+            url = f"https://agmarknet.gov.in/SearchCmmMkt.aspx?Tx_Commodity={code}&Tx_State=RJ&Tx_District=0&Tx_Market=0&DateFrom={date_str}&DateTo={date_str}&Fr_Date={date_str}&To_Date={date_str}&Tx_Trend=0&Tx_CommodityHead={commodity_name}&Tx_StateHead=Rajasthan&Tx_DistrictHead=--Select--&Tx_MarketHead=--Select--"
             
             response = requests.get(url)
-            print(f"Fetching {commodity_name} prices for {date}...")
 
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, "html.parser")
@@ -55,7 +57,7 @@ def scrape_agmarknet():
                 mandi_prices = []
 
                 if table:
-                    rows = table.find_all("tr")[1:]  # Skip header
+                    rows = table.find_all("tr")[1:]
                     for row in rows:
                         cols = row.find_all("td")
                         if len(cols) >= 10:
@@ -78,17 +80,18 @@ def scrape_agmarknet():
                     for item in mandi_prices:
                         doc_ref = db.collection("mandi_prices").document()
                         doc_ref.set(item)
-
-                    print(f"✅ {commodity_name} prices for {date} scraped and uploaded successfully.")
-                    data_found = True  # Data was found for this date
+                    
+                    print(f"✅ {commodity_name} prices for {date_str} scraped and uploaded successfully.")
+                    data_found_for_commodity = True
+                    break  # ✅ Exit date loop for this commodity if data found
                 else:
-                    print(f"❌ Data table not found for {commodity_name} on {date}.")
+                    print(f"❌ No data table found for {commodity_name} on {date_str}")
             else:
-                print(f"❌ Failed to fetch page for {commodity_name} on {date}. Status code: {response.status_code}")
+                print(f"❌ Failed to fetch {commodity_name} for {date_str}. Status: {response.status_code}")
 
-        if data_found:
-            print(f"✅ Data found for {date}, skipping older dates.")
-            break  # Exit loop if data found for any commodity on this date
+        if not data_found_for_commodity:
+            print(f"❌ No data found for {commodity_name} in last 3 days.")
+
 
 # ✅ Run scraper
 if __name__ == "__main__":
